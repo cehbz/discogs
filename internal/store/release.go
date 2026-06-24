@@ -50,7 +50,7 @@ func InsertRelease(tx *sql.Tx, r *parse.Release) error {
 			if _, err := tx.Exec(
 				`INSERT INTO release_format_description(format_id,seq,description) VALUES(?,?,?)`,
 				fid, j, d); err != nil {
-				return fmt.Errorf("insert format_desc %d/%d: %w", r.ID, j, err)
+				return fmt.Errorf("insert format_desc %d format %d desc %d: %w", r.ID, i, j, err)
 			}
 		}
 	}
