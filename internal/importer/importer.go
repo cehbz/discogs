@@ -55,16 +55,20 @@ func Import(dbPath, dir, date string) (_ *Report, err error) {
 	path := func(typ string) string { return filepath.Join(dir, dumps.FileName(date, typ)) }
 
 	var streamErr error
-	if counts["artists"], streamErr = importStream(db, path("artists"), parse.ParseArtists, store.InsertArtist); streamErr != nil {
+	if counts["artists"], streamErr = importStream(db, path("artists"), parse.ParseArtists,
+		func(tx *sql.Tx) (store.Inserter[parse.Artist], error) { return store.NewArtistInserter(tx) }); streamErr != nil {
 		return nil, fmt.Errorf("import artists: %w", streamErr)
 	}
-	if counts["labels"], streamErr = importStream(db, path("labels"), parse.ParseLabels, store.InsertLabel); streamErr != nil {
+	if counts["labels"], streamErr = importStream(db, path("labels"), parse.ParseLabels,
+		func(tx *sql.Tx) (store.Inserter[parse.Label], error) { return store.NewLabelInserter(tx) }); streamErr != nil {
 		return nil, fmt.Errorf("import labels: %w", streamErr)
 	}
-	if counts["masters"], streamErr = importStream(db, path("masters"), parse.ParseMasters, store.InsertMaster); streamErr != nil {
+	if counts["masters"], streamErr = importStream(db, path("masters"), parse.ParseMasters,
+		func(tx *sql.Tx) (store.Inserter[parse.Master], error) { return store.NewMasterInserter(tx) }); streamErr != nil {
 		return nil, fmt.Errorf("import masters: %w", streamErr)
 	}
-	if counts["releases"], streamErr = importStream(db, path("releases"), parse.ParseReleases, store.InsertRelease); streamErr != nil {
+	if counts["releases"], streamErr = importStream(db, path("releases"), parse.ParseReleases,
+		func(tx *sql.Tx) (store.Inserter[parse.Release], error) { return store.NewReleaseInserter(tx) }); streamErr != nil {
 		return nil, fmt.Errorf("import releases: %w", streamErr)
 	}
 
@@ -109,12 +113,12 @@ func Import(dbPath, dir, date string) (_ *Report, err error) {
 }
 
 // importStream streams one gzip dump file through parseFn, inserting each record via
-// insert, committing every batchSize records. T is the parsed record type.
+// an Inserter created by newIns, committing every batchSize records. T is the parsed record type.
 func importStream[T any](
 	db *sql.DB,
 	path string,
 	parseFn func(io.Reader, func(*T) error) error,
-	insert func(*sql.Tx, *T) error,
+	newIns func(*sql.Tx) (store.Inserter[T], error),
 ) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -131,29 +135,55 @@ func importStream[T any](
 	if err != nil {
 		return 0, err
 	}
+	ins, err := newIns(tx)
+	if err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
 	var n int64
 	perr := parseFn(gz, func(rec *T) error {
-		if err := insert(tx, rec); err != nil {
+		if err := ins.Insert(rec); err != nil {
 			return err
 		}
 		n++
 		if n%batchSize == 0 {
+			if err := ins.Close(); err != nil {
+				ins = nil
+				return err
+			}
+			ins = nil
 			if err := tx.Commit(); err != nil {
+				tx = nil
 				return err
 			}
 			tx, err = db.Begin()
 			if err != nil {
 				tx = nil
+				ins = nil
+				return err
+			}
+			ins, err = newIns(tx)
+			if err != nil {
+				ins = nil
 				return err
 			}
 		}
 		return nil
 	})
 	if perr != nil {
+		if ins != nil {
+			_ = ins.Close()
+		}
 		if tx != nil {
 			_ = tx.Rollback()
 		}
 		return n, perr
+	}
+	if ins != nil {
+		if err := ins.Close(); err != nil {
+			_ = tx.Rollback()
+			return n, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return n, err
