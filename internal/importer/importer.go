@@ -62,11 +62,11 @@ func Import(dbPath, dir, date string) (*Report, error) {
 		return nil, fmt.Errorf("import releases: %w", err)
 	}
 
-	if err := store.BuildFTS(db); err != nil {
-		return nil, fmt.Errorf("build fts: %w", err)
-	}
 	if err := store.BuildIndexes(db); err != nil {
 		return nil, fmt.Errorf("build indexes: %w", err)
+	}
+	if err := store.BuildFTS(db); err != nil {
+		return nil, fmt.Errorf("build fts: %w", err)
 	}
 
 	tx, err := db.Begin()
