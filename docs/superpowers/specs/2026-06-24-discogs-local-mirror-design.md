@@ -478,8 +478,15 @@ detail assembly; format/description tables for filtering.
 - **Determinism/isolation:** tests build throwaway temp DBs; no network in unit tests
   (fetcher tested against a local fixture server / recorded responses).
 
-## To confirm during implementation
+## First real import — measured results (2026-06-01 dump, run 2026-06-24)
 
-- Final on-disk DB size on the X10 (3NF + FTS5; measure) and free space for `.gz` + DB.
-- Per-FK enforcement decisions from the first real integrity report.
-- FTS5 availability in the Python build `tidalist` uses.
+- **DB:** `/Volumes/Crucial X10/discogs/discogs-20260601.db` — **46 GB** (X10: 6.1 TB free). Stable symlink `discogs.db → discogs-20260601.db`.
+- **Wall-clock:** ~2h45m total — fetch ~6 min; import ~2h40m (incl. ~17 min for the final integrity report).
+- **Row counts:** artists 10,081,427 · labels 2,383,990 · masters 2,560,991 · releases 19,192,301 · tracks 178,224,810 · release_artist 93,727,607.
+- **Per-FK enforcement decision:** no relationship returned 0 orphans, so **all FKs stay advisory (none enforced).** Orphans — release_artist→artist 2,317,526; track_artist→artist 1,643,197; master_artist→artist 173,661; release.master_id→master 159; master.main_release_id→release 128; release_label.label_id→label 109. (Credits referencing artists absent from the artists dump are normal Discogs data.)
+- **FTS5 functional check:** column-scoped MATCH (`title:"kind of blue" AND artist_names:miles`) returns the correct Miles Davis editions in ~0.1s.
+- **Perf follow-up:** the ~2h40m import (≈300M+ inserts via per-row `tx.Exec`) justified implementing the deferred prepared-statement optimization.
+
+## Still open
+
+- FTS5 availability in the Python `sqlite3` build `tidalist` uses (tidalist's environment; untested here).
