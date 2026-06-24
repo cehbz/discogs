@@ -86,6 +86,47 @@ func InsertRelease(tx *sql.Tx, r *parse.Release) error {
 			return fmt.Errorf("insert release_video %d/%d: %w", r.ID, i, err)
 		}
 	}
+	if err := insertTracks(tx, r.ID, nil, r.Tracklist); err != nil {
+		return err
+	}
+	return nil
+}
+
+func insertTracks(tx *sql.Tx, releaseID int, parentID any, tracks []parse.Track) error {
+	for i, t := range tracks {
+		res, err := tx.Exec(
+			`INSERT INTO track(release_id,parent_track_id,seq,position,title,duration) VALUES(?,?,?,?,?,?)`,
+			releaseID, parentID, i, t.Position, t.Title, t.Duration)
+		if err != nil {
+			return fmt.Errorf("insert track (release %d): %w", releaseID, err)
+		}
+		tid, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := insertTrackCredits(tx, tid, "main", t.Artists); err != nil {
+			return err
+		}
+		if err := insertTrackCredits(tx, tid, "extra", t.ExtraArtists); err != nil {
+			return err
+		}
+		if len(t.SubTracks) > 0 {
+			if err := insertTracks(tx, releaseID, tid, t.SubTracks); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func insertTrackCredits(tx *sql.Tx, trackID int64, kind string, credits []parse.ArtistCredit) error {
+	for i, c := range credits {
+		if _, err := tx.Exec(
+			`INSERT INTO track_artist(track_id,seq,artist_id,anv,join_str,role,kind) VALUES(?,?,?,?,?,?,?)`,
+			trackID, i, c.ID, c.ANV, c.Join, c.Role, kind); err != nil {
+			return fmt.Errorf("insert track_artist (track %d): %w", trackID, err)
+		}
+	}
 	return nil
 }
 
