@@ -75,15 +75,21 @@ func downloadOne(ctx context.Context, client *http.Client, url, dest string) err
 
 // VerifyChecksums recomputes SHA-256 for each file listed in the CHECKSUM file and
 // compares. Returns an error on the first mismatch or missing file.
+// A non-empty line that does not split into exactly two fields is an error.
+// After processing all lines, every expected dump file must have been present and verified.
 func VerifyChecksums(dir, date string) error {
 	data, err := os.ReadFile(filepath.Join(dir, ChecksumName(date)))
 	if err != nil {
 		return fmt.Errorf("read checksum file: %w", err)
 	}
+	verified := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
 		fields := strings.Fields(line)
 		if len(fields) != 2 {
-			continue
+			return fmt.Errorf("malformed checksum line: %q", line)
 		}
 		want, name := fields[0], fields[1]
 		got, err := sha256File(filepath.Join(dir, name))
@@ -92,6 +98,13 @@ func VerifyChecksums(dir, date string) error {
 		}
 		if !strings.EqualFold(got, want) {
 			return fmt.Errorf("checksum mismatch for %s: got %s want %s", name, got, want)
+		}
+		verified[name] = true
+	}
+	for _, typ := range Types {
+		name := FileName(date, typ)
+		if !verified[name] {
+			return fmt.Errorf("checksum file missing entry for %s", name)
 		}
 	}
 	return nil

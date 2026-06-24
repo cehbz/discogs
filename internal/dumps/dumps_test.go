@@ -72,3 +72,26 @@ func TestVerifyChecksums_DetectsCorruption(t *testing.T) {
 		t.Fatalf("expected checksum mismatch error, got nil")
 	}
 }
+
+func TestVerifyChecksums_MissingDump(t *testing.T) {
+	const date = "20260601"
+	// Build a checksum file that only contains three of the four expected dumps.
+	dir := t.TempDir()
+	var lines []string
+	for i, typ := range Types {
+		if i == len(Types)-1 {
+			break // omit the last type ("releases")
+		}
+		name := FileName(date, typ)
+		body := "GZIPDATA-" + typ
+		os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
+		sum := sha256.Sum256([]byte(body))
+		lines = append(lines, fmt.Sprintf("%s  %s", hex.EncodeToString(sum[:]), name))
+	}
+	checksum := strings.Join(lines, "\n") + "\n"
+	os.WriteFile(filepath.Join(dir, ChecksumName(date)), []byte(checksum), 0o644)
+
+	if err := VerifyChecksums(dir, date); err == nil {
+		t.Fatalf("expected error for missing dump entry, got nil")
+	}
+}
