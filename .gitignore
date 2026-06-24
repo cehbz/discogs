@@ -1,0 +1,6 @@
+.superpowers/
+*.db
+*.db-wal
+*.db-shm
+*.xml.gz
+/discogs
